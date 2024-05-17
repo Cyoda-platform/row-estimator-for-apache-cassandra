@@ -1,0 +1,2 @@
+cassandra-driver==3.29.1
+sortedcontainers==2.4.0
