@@ -1,6 +1,7 @@
 # Row cassandra estimator
 copied base from https://github.com/aws-samples/row-estimator-for-apache-cassandra
-Original project has bug and work with all tables in keyspace
+
+Original project has bug (can not connect to table, if table name with upper case) and can not iterate over all tables in keyspace
 
 ## How to run
 ```bash
