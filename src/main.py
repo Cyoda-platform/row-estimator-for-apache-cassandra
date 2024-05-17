@@ -8,6 +8,7 @@ from itertools import chain
 from sys import getsizeof, stderr
 from venv import logger
 
+from ssl import SSLContext, PROTOCOL_TLSv1_2, CERT_REQUIRED, PROTOCOL_TLSv1
 from cassandra import ConsistencyLevel
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import ExecutionProfile, Cluster
@@ -213,17 +214,41 @@ def main():
     logging.getLogger('cassandra').setLevel(logging.ERROR)
     logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 
-    p_hostname = "127.0.0.1"
-    p_port = "9042"
-    p_username = None
-    p_password = None
-    p_keyspace = "simple_cobi"
-    p_execution_timeout = 360
-    p_token_step = 4
-    p_rows_per_request = 1000
-    p_pagination = 200
+    # Configure app args
+    parser = argparse.ArgumentParser(description='The tool helps to gather Cassandra rows stats')
+    requiredNamed = parser.add_argument_group('required named arguments')
+    requiredNamed.add_argument('--hostname', help='Cassandra endpoint', default='127.0.0.1', required=True)
+    requiredNamed.add_argument('--port', help='Cassandra native transport port', required=True)
+    requiredNamed.add_argument('--keyspace', help='Gather stats against provided keyspace', required=True)
+    parser.add_argument('--ssl', help='Use SSL.', default=None)
+    parser.add_argument('--path-cert', help='Path to the TLS certificate', default=None)
+    parser.add_argument('--username', help='Authenticate as user')
+    parser.add_argument('--password', help='Authenticate using password')
+    parser.add_argument('--execution-timeout', help='Set execution timeout in seconds', type=int, default=360)
+    parser.add_argument('--token-step', help='Set token step, for example, 2, 4, 8, 16, 32, ..., 255', type=int, default=4)
+    parser.add_argument('--rows-per-request', help='How many rows per token', type=int, default=1000)
+    parser.add_argument('--pagination', help='Turn on pagination mechanism', type=int, default=200)
+    parser.add_argument('--dc', help='Define Cassandra datacenter for routing policy', default='datacenter1')
 
-    connection = get_connection(p_hostname, p_port, p_username, p_password)
+    if (len(sys.argv) < 2):
+        parser.print_help()
+        sys.exit()
+
+    args = parser.parse_args()
+    p_hostname = args.hostname
+    p_port = args.port
+    p_username = args.username
+    p_password = args.password
+    p_ssl = args.ssl
+    p_path_cert = args.path_cert
+    p_dc = args.dc
+    p_keyspace = args.keyspace
+    p_execution_timeout = args.execution_timeout
+    p_token_step = args.token_step
+    p_rows_per_request = args.rows_per_request
+    p_pagination = args.pagination
+
+    connection = get_connection(p_hostname, p_port, p_username, p_password, p_ssl, p_path_cert, p_dc)
 
     all_tables_in_keyspace = get_tables(connection, p_keyspace)
 
@@ -236,8 +261,7 @@ def main():
         # Event object used to send signals from one thread to another
         stop_event = Event()
 
-        estimator = Estimator(connection, stop_event, p_keyspace, table_name, p_execution_timeout, p_token_step, p_rows_per_request,
-                              p_pagination)
+        estimator = Estimator(connection, stop_event, p_keyspace, table_name, p_execution_timeout, p_token_step, p_rows_per_request, p_pagination)
 
         action_thread = Thread(target=estimator.row_sampler())
         action_thread.start()
@@ -282,14 +306,28 @@ def get_tables(connection, keyspace):
     return tables
 
 
-def get_connection(host, port, username=None, password=None):
+def get_connection(host, port, username, password, ssl, path_cert, dc):
     """ Returns Cassandra session """
+    auth_provider = None
 
-    auth_provider = PlainTextAuthProvider(username, password)
+    if ssl:
+        ssl_context = SSLContext(PROTOCOL_TLSv1)
+        ssl_context.load_verify_locations(path_cert)
+        ssl_context.verify_mode = CERT_REQUIRED
+        # ssl_options = {
+        #    'ca_certs' : self.ssl,
+        #    'ssl_version' : PROTOCOL_TLSv1_2
+        # }
+    else:
+        ssl_context = None
+
+    if (username and password):
+        auth_provider = PlainTextAuthProvider(username, password)
+
     node1_profile = ExecutionProfile(load_balancing_policy=WhiteListRoundRobinPolicy([host]))
     profiles = {'node1': node1_profile}
-    cluster = Cluster([host], port=port, auth_provider=auth_provider, ssl_context=None,
-                      control_connection_timeout=360, execution_profiles=profiles)
+    cluster = Cluster([host], port=port, auth_provider=auth_provider, ssl_context=ssl_context, control_connection_timeout=360,
+                      execution_profiles=profiles)
     session = cluster.connect()
     return session
 

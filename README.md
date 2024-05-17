@@ -4,6 +4,8 @@ Original project has bug and work with all tables in keyspace
 
 ## How to run
 ```bash
+
+
 # 1. activate virtual env
 python3 -m venv venv
 source venv/bin/activate
@@ -12,7 +14,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 3. run 
-python3 ./src/main.py
+ python3 ./src/main.py --hostname 127.0.0.1 --port 9042 --keyspace <your_keyspace>   
 
 # 4. deactivate virtual env
 deactivate
